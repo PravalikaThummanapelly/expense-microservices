@@ -1,0 +1,54 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ppassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  users-service:
+    build: ./users-service
+    ports:
+      - "5001:5001"
+    environment:
+      DATABASE_URL: mysql+pymysql://root:password@mysql:3306/users_db
+      JWT_SECRET: my-super-secret-jwt-key-2026
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  expenses-service:
+    build: ./expenses-service
+    ports:
+      - "5002:5002"
+    environment:
+      DATABASE_URL: mysql+pymysql://root:password@mysql:3306/expenses_db
+      JWT_SECRET: my-super-secret-jwt-key-2026
+      USERS_SERVICE_URL: http://users-service:5001
+    depends_on:
+      mysql:
+        condition: service_healthy
+      users-service:
+        condition: service_started
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      USERS_SERVICE_URL: http://users-service:5001
+      EXPENSES_SERVICE_URL: http://expenses-service:5002
+    depends_on:
+      - users-service
+      - expenses-service
+
+volumes:
+  mysql_data:
