@@ -1,0 +1,35 @@
+name: CI
+
+# Run this workflow on every push and every pull request targeting main
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # A matrix runs the same job once per entry in the list — this means
+    # all 3 services get tested in parallel instead of one long sequential job.
+    strategy:
+      matrix:
+        service: [users-service, expenses-service, api-gateway]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        working-directory: ${{ matrix.service }}
+        run: python -m pytest tests/ -v
