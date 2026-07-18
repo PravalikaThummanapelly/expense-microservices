@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Expense Tracker</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    max-width: 480px;
+    margin: 40px auto;
+    padding: 0 16px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+  .card {
+    background: #1e293b;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  input, button, select {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    border-radius: 6px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 14px;
+  }
+  button {
+    background: #6366f1;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    margin-top: 12px;
+  }
+  button:hover { background: #4f46e5; }
+  button.secondary { background: transparent; border: 1px solid #6366f1; color: #6366f1; }
+  .error { color: #f87171; font-size: 13px; margin-top: 8px; }
+  .expense-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #334155;
+  }
+  .expense-row:last-child { border-bottom: none; }
+  .expense-title { font-weight: 600; }
+  .expense-meta { color: #94a3b8; font-size: 12px; }
+  .amount { color: #34d399; font-weight: 600; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; }
+  .hidden { display: none; }
+  #apiUrlBox { font-size: 12px; color: #64748b; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+
+<h1>💰 Expense Tracker</h1>
+<div class="subtitle">Microservices demo frontend</div>
+
+<div id="apiUrlBox">
+  API base URL:
+  <input id="apiUrlInput" value="http://127.0.0.1:8000" style="display:inline-block; width:220px; margin:0 6px;" />
+  <button id="saveUrlBtn" class="secondary" style="display:inline-block; width:auto; margin:0; padding:6px 10px;">Save</button>
+</div>
+
+<!-- AUTH VIEW -->
+<div id="authView" class="card">
+  <div id="signupFields">
+    <input id="nameInput" placeholder="Name" />
+  </div>
+  <input id="emailInput" placeholder="Email" />
+  <input id="passwordInput" type="password" placeholder="Password" />
+  <button id="primaryAuthBtn">Sign Up</button>
+  <button id="toggleAuthBtn" class="secondary">Already have an account? Log in</button>
+  <div id="authError" class="error"></div>
+</div>
+
+<!-- APP VIEW (shown after login) -->
+<div id="appView" class="hidden">
+  <div class="top-bar">
+    <div>Logged in as <strong id="loggedInEmail"></strong></div>
+    <button id="logoutBtn" class="secondary" style="width:auto;">Log out</button>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Add Expense</h3>
+    <input id="titleInput" placeholder="Title (e.g. Coffee)" />
+    <input id="amountInput" type="number" placeholder="Amount" />
+    <input id="categoryInput" placeholder="Category (e.g. food)" />
+    <button id="addExpenseBtn">Add Expense</button>
+    <div id="expenseError" class="error"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Your Expenses</h3>
+    <div id="expensesList">Loading...</div>
+  </div>
+</div>
+
+<script>
+  let API_BASE = localStorage.getItem('apiBaseUrl') || 'http://127.0.0.1:8000';
+  document.getElementById('apiUrlInput').value = API_BASE;
+  let token = localStorage.getItem('token');
+  let userEmail = localStorage.getItem('userEmail');
+  let isSignupMode = true;
+
+  const authView = document.getElementById('authView');
+  const appView = document.getElementById('appView');
+
+  document.getElementById('saveUrlBtn').onclick = () => {
+    API_BASE = document.getElementById('apiUrlInput').value.replace(/\/$/, '');
+    localStorage.setItem('apiBaseUrl', API_BASE);
+  };
+
+  function showApp() {
+    authView.classList.add('hidden');
+    appView.classList.remove('hidden');
+    document.getElementById('loggedInEmail').textContent = userEmail || '';
+    loadExpenses();
+  }
+
+  function showAuth() {
+    appView.classList.add('hidden');
+    authView.classList.remove('hidden');
+  }
+
+  document.getElementById('toggleAuthBtn').onclick = () => {
+    isSignupMode = !isSignupMode;
+    document.getElementById('signupFields').classList.toggle('hidden', !isSignupMode);
+    document.getElementById('primaryAuthBtn').textContent = isSignupMode ? 'Sign Up' : 'Log In';
+    document.getElementById('toggleAuthBtn').textContent = isSignupMode
+      ? 'Already have an account? Log in'
+      : "Don't have an account? Sign up";
+  };
+
+  document.getElementById('primaryAuthBtn').onclick = async () => {
+    const email = document.getElementById('emailInput').value;
+    const password = document.getElementById('passwordInput').value;
+    const errorBox = document.getElementById('authError');
+    errorBox.textContent = '';
+
+    try {
+      if (isSignupMode) {
+        const name = document.getElementById('nameInput').value;
+        const res = await fetch(`${API_BASE}/auth/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Signup failed');
+        // After signup, log them in automatically
+        await doLogin(email, password);
+      } else {
+        await doLogin(email, password);
+      }
+    } catch (err) {
+      errorBox.textContent = err.message;
+    }
+  };
+
+  async function doLogin(email, password) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'Login failed');
+    const data = await res.json();
+    token = data.token;
+    userEmail = email;
+    localStorage.setItem('token', token);
+    localStorage.setItem('userEmail', userEmail);
+    showApp();
+  }
+
+  document.getElementById('logoutBtn').onclick = () => {
+    token = null;
+    localStorage.removeItem('token');
+    localStorage.removeItem('userEmail');
+    showAuth();
+  };
+
+  document.getElementById('addExpenseBtn').onclick = async () => {
+    const title = document.getElementById('titleInput').value;
+    const amount = parseFloat(document.getElementById('amountInput').value);
+    const category = document.getElementById('categoryInput').value || 'general';
+    const errorBox = document.getElementById('expenseError');
+    errorBox.textContent = '';
+
+    try {
+      const res = await fetch(`${API_BASE}/expenses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title, amount, category }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to add expense');
+      document.getElementById('titleInput').value = '';
+      document.getElementById('amountInput').value = '';
+      document.getElementById('categoryInput').value = '';
+      loadExpenses();
+    } catch (err) {
+      errorBox.textContent = err.message;
+    }
+  };
+
+  async function loadExpenses() {
+    const listEl = document.getElementById('expensesList');
+    try {
+      const res = await fetch(`${API_BASE}/expenses`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Could not load expenses');
+      const expenses = await res.json();
+      if (expenses.length === 0) {
+        listEl.innerHTML = '<div style="color:#94a3b8;">No expenses yet.</div>';
+        return;
+      }
+      listEl.innerHTML = expenses.map(e => `
+        <div class="expense-row">
+          <div>
+            <div class="expense-title">${e.title}</div>
+            <div class="expense-meta">${e.category} · ${new Date(e.created_at).toLocaleDateString()}</div>
+          </div>
+          <div class="amount">₹${e.amount.toFixed(2)}</div>
+        </div>
+      `).join('');
+    } catch (err) {
+      listEl.innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  }
+
+  // On page load, if we already have a token, skip straight to the app
+  if (token && userEmail) {
+    showApp();
+  }
+</script>
+
+</body>
+</html>

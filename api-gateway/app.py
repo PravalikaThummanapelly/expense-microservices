@@ -1,9 +1,15 @@
 from flask import Flask, request, jsonify, Response
+from flask_cors import CORS
 from config import Config
 import requests
 
 app = Flask(__name__)
 app.config.from_object(Config)
+
+# Allows a browser-based frontend (running on a different origin/port) to
+# call this API. Without this, browsers silently block the requests as a
+# security measure — a very common first bug when wiring up a frontend.
+CORS(app)
 
 
 def proxy_request(target_base_url, path):
